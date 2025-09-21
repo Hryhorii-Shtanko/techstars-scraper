@@ -44,7 +44,13 @@ public class ScraperService {
     }
 
     public void scrapeJobsByFunction(String jobFunction) {
-        String url = baseUrl + "?functions=" + jobFunction.replace(" ", "+");
+    int page = 1;
+    int totalJobsFound = 0;
+
+    while (true) {
+        String url = baseUrl + "?functions=" + jobFunction.replace(" ", "+") + "&page=" + page;
+        log.info("Scraping page {} for job function '{}'", page, jobFunction);
+        
         try {
             Document doc = Jsoup.connect(url)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36")
@@ -52,29 +58,40 @@ public class ScraperService {
 
             Element scriptTag = doc.selectFirst("script[id=__NEXT_DATA__]");
             if (scriptTag == null) {
-                log.error("Could not find script tag with ID __NEXT_DATA__");
-                return;
+                log.error("Could not find script tag on page {}", page);
+                break;
             }
 
             String jsonData = scriptTag.html();
             JsonObject rootObject = JsonParser.parseString(jsonData).getAsJsonObject();
             JsonArray jobsArray = rootObject.getAsJsonObject("props")
-                    .getAsJsonObject("pageProps")
-                    .getAsJsonObject("initialState")
-                    .getAsJsonObject("jobs")
-                    .getAsJsonArray("found");
+                                            .getAsJsonObject("pageProps")
+                                            .getAsJsonObject("initialState")
+                                            .getAsJsonObject("jobs")
+                                            .getAsJsonArray("found");
+            
+            if (jobsArray.isEmpty()) {
+                log.info("No more jobs found on page {}. Finishing pagination.", page);
+                break;
+            }
 
-            log.info("Found {} jobs in JSON. Saving them directly...", jobsArray.size());
+            log.info("Found {} jobs on page {}. Submitting for processing...", jobsArray.size(), page);
+            totalJobsFound += jobsArray.size();
 
-            for (JsonElement jobElement : jobsArray) {
+            for (var jobElement : jobsArray) {
                 JsonObject jobJson = jobElement.getAsJsonObject();
                 CompletableFuture.runAsync(() -> saveJobFromJson(jobJson, jobFunction), taskExecutor);
             }
+            
+            page++; 
 
         } catch (IOException e) {
-            log.error("Failed to fetch main job list page: {}", url, e);
+            log.error("Failed to fetch page {}: {}", page, url, e);
+            break;
         }
     }
+    log.info("Finished scraping for '{}'. Total jobs found: {}", jobFunction, totalJobsFound);
+}
 
     private void saveJobFromJson(JsonObject jobJson, String laborFunction) {
         String jobUrl = jobJson.get("url").getAsString();
@@ -122,4 +139,5 @@ public class ScraperService {
             log.error("Failed to save job from JSON for URL {}. Error: {}", jobUrl, e.getMessage());
         }
     }
+
 }
