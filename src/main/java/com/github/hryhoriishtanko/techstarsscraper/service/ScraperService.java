@@ -37,7 +37,6 @@ public class ScraperService {
     @Value("${app.scraper.target-function}")
     private String targetJobFunction;
 
-    @PostConstruct
     public void startScraping() {
         log.info("Starting to scrape '{}' jobs...", targetJobFunction);
         scrapeJobsByFunction(targetJobFunction);
@@ -141,3 +140,4 @@ public class ScraperService {
     }
 
 }
+
